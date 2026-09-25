@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Base64 相互変換ツール</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #333;
+      background-color: #f9f9f9;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    h2 { margin-top: 0; font-size: 1.25rem; }
+    textarea {
+      width: 100%;
+      height: 100px;
+      margin: 10px 0;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-family: monospace;
+    }
+    input[type="text"], input[type="file"] {
+      width: 100%;
+      padding: 8px;
+      margin: 8px 0;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #0066cc;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover { background-color: #0052a3; }
+  </style>
+</head>
+<body>
+
+  <h1>Base64 相互変換ツール</h1>
+
+  <!-- 1. ファイル → Base64 -->
+  <div class="card">
+    <h2>1. ファイルを Base64 に変換</h2>
+    <input type="file" id="fileInput">
+    <textarea id="base64Output" placeholder="変換された Base64 文字列がここに表示されます" readonly></textarea>
+    <button onclick="copyBase64()">クリップボードにコピー</button>
+  </div>
+
+  <!-- 2. Base64 → ファイル -->
+  <div class="card">
+    <h2>2. Base64 をファイルに変換して復元</h2>
+    <input type="text" id="fileNameInput" placeholder="保存時のファイル名（例: sample.png, document.pdf）">
+    <textarea id="base64Input" placeholder="Base64 文字列（data:image/png;base64,... 形式、または純粋なBase64文字列）を入力"></textarea>
+    <button onclick="downloadFile()">ファイルとしてダウンロード</button>
+  </div>
+
+  <script>
+    // --- 1. ファイル → Base64 変換処理 ---
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        document.getElementById('base64Output').value = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function copyBase64() {
+      const output = document.getElementById('base64Output');
+      if (!output.value) return;
+      output.select();
+      navigator.clipboard.writeText(output.value);
+      alert('クリップボードにコピーしました！');
+    }
+
+    // --- 2. Base64 → ファイル 復元処理 ---
+    function downloadFile() {
+      const inputStr = document.getElementById('base64Input').value.trim();
+      let fileName = document.getElementById('fileNameInput').value.trim() || 'restored_file';
+
+      if (!inputStr) {
+        alert('Base64 文字列を入力してください。');
+        return;
+      }
+
+      try {
+        let base64Data = inputStr;
+        let mimeType = 'application/octet-stream';
+
+        // データURIスキーム（data:image/png;base64,...）が含まれている場合の処理
+        if (inputStr.startsWith('data:')) {
+          const parts = inputStr.split(',');
+          const matches = parts[0].match(/:(.*?);/);
+          if (matches && matches[1]) {
+            mimeType = matches[1];
+          }
+          base64Data = parts[1];
+        }
+
+        // Base64デコード
+        const binaryStr = atob(base64Data);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+
+        // Blobを作成してダウンロードリンクを発行
+        const blob = new Blob([bytes], { type: mimeType });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+      } catch (e) {
+        alert('変換に失敗しました。正しい Base64 文字列か確認してください。');
+      }
+    }
+  </script>
+
+</body>
+</html>
