@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>光学式データ転送システム (Animated QR Data Transfer)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- QRCode.js for generating QR codes -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- jsQR for camera scanning -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+    <!-- ヘッダー -->
+    <header class="border-b border-slate-800 bg-slate-950/50 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-indigo-600 rounded-lg text-white shadow-lg shadow-indigo-600/30">
+                    <i data-lucide="qr-code" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-none">Optical Data Transfer</h1>
+                    <p class="text-xs text-slate-400 mt-1">アニメーションQRコードによるオフラインデータ転送システム</p>
+                </div>
+            </div>
+            <!-- モード切り替えタブ -->
+            <div class="flex bg-slate-800 p-1 rounded-xl border border-slate-700 w-full sm:w-auto">
+                <button id="tab-sender-btn" onclick="switchTab('sender')" class="flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 bg-indigo-600 text-white shadow-lg">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                    <span>送信 (Sender)</span>
+                </button>
+                <button id="tab-receiver-btn" onclick="switchTab('receiver')" class="flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 text-slate-400 hover:text-white">
+                    <i data-lucide="scan" class="w-4 h-4"></i>
+                    <span>受信 (Receiver)</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 flex flex-col">
+        
+        <!-- ================= 送信モード ================= -->
+        <div id="sender-section" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <!-- 左側: 設定・入力 -->
+            <div class="lg:col-span-6 space-y-5 bg-slate-800/60 p-5 sm:p-6 rounded-2xl border border-slate-700/60 backdrop-blur">
+                <h2 class="text-base font-bold flex items-center space-x-2 text-indigo-400">
+                    <i data-lucide="edit-3" class="w-5 h-5"></i>
+                    <span>データ入力と転送設定</span>
+                </h2>
+                
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-2">送信テキストデータ</label>
+                    <textarea id="send-text-input" rows="5" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-200 resize-y placeholder-slate-600" placeholder="ここに転送したいテキストやコードを入力してください..."></textarea>
+                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                        <span id="char-count">0 文字</span>
+                        <span id="estimated-chunks">0 コマ</span>
+                    </div>
+                </div>
+
+                <!-- 設定パネル -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/50">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-xs font-semibold text-slate-300">1コマあたりの文字数</label>
+                            <span id="chunk-size-val" class="text-xs font-mono font-bold text-indigo-400">60</span>
+                        </div>
+                        <input type="range" id="chunk-size-slider" min="20" max="150" value="60" class="w-full accent-indigo-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                        <p class="text-[10px] text-slate-500 mt-1">少ないほど読み取りエラーが減ります</p>
+                    </div>
+
+                    <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/50">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-xs font-semibold text-slate-300">表示速度 (FPS)</label>
+                            <span id="fps-val" class="text-xs font-mono font-bold text-indigo-400">4</span>
+                        </div>
+                        <input type="range" id="fps-slider" min="1" max="12" value="4" class="w-full accent-indigo-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                        <p class="text-[10px] text-slate-500 mt-1">カメラ追従速度に合わせて調整</p>
+                    </div>
+                </div>
+
+                <div class="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3 text-xs text-indigo-300 flex items-start space-x-2">
+                    <i data-lucide="info" class="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5"></i>
+                    <span>長文を送る場合は、1コマの文字数を小さく（40〜60文字）し、FPSを3〜5に設定すると安定して読み取れます。</span>
+                </div>
+            </div>
+
+            <!-- 右側: QRコードプレビュー・コントロール -->
+            <div class="lg:col-span-6 space-y-5 bg-slate-800/60 p-5 sm:p-6 rounded-2xl border border-slate-700/60 backdrop-blur flex flex-col items-center justify-center">
+                
+                <!-- QRコード表示エリア -->
+                <div class="relative bg-white p-4 rounded-2xl shadow-2xl flex flex-col items-center justify-center aspect-square w-full max-w-[280px] sm:max-w-[320px]">
+                    <div id="qrcode-container" class="w-full h-full flex items-center justify-center"></div>
+                    <div id="qr-placeholder" class="text-slate-400 text-center p-4">
+                        <i data-lucide="qr-code" class="w-16 h-16 mx-auto mb-2 opacity-30 text-slate-800"></i>
+                        <p class="text-xs font-medium text-slate-500">テキストを入力すると<br>QRコードが生成されます</p>
+                    </div>
+                </div>
+
+                <!-- ステータス表示 -->
+                <div class="w-full bg-slate-900/80 rounded-xl p-3 border border-slate-700/50 flex justify-around text-center">
+                    <div>
+                        <div class="text-[10px] text-slate-500 uppercase tracking-wider">コマ進行度</div>
+                        <div id="sender-progress-text" class="text-sm font-mono font-bold text-indigo-400">0 / 0</div>
+                    </div>
+                    <div class="border-r border-slate-800"></div>
+                    <div>
+                        <div class="text-[10px] text-slate-500 uppercase tracking-wider">ループ経過時間</div>
+                        <div id="sender-timer-text" class="text-sm font-mono font-bold text-slate-300">00:00</div>
+                    </div>
+                </div>
+
+                <!-- 操作ボタン群 -->
+                <div class="flex items-center justify-center space-x-2 w-full">
+                    <button id="btn-prev" onclick="stepFrame(-1)" class="p-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition disabled:opacity-40" disabled title="前のコマ">
+                        <i data-lucide="skip-back" class="w-5 h-5"></i>
+                    </button>
+                    <button id="btn-play" onclick="togglePlay()" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white font-bold flex items-center space-x-2 transition shadow-lg disabled:opacity-40" disabled>
+                        <i id="play-icon" data-lucide="play" class="w-5 h-5"></i>
+                        <span id="play-text">再生</span>
+                    </button>
+                    <button id="btn-next" onclick="stepFrame(1)" class="p-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition disabled:opacity-40" disabled title="次のコマ">
+                        <i data-lucide="skip-forward" class="w-5 h-5"></i>
+                    </button>
+                    <button id="btn-reset" onclick="resetSender()" class="p-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 hover:text-white transition" title="リセット">
+                        <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= 受信モード ================= -->
+        <div id="receiver-section" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start hidden">
+            <!-- 左側: カメラビュー・ファイルフォールバック -->
+            <div class="lg:col-span-6 space-y-4 bg-slate-800/60 p-5 sm:p-6 rounded-2xl border border-slate-700/60 backdrop-blur">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-base font-bold flex items-center space-x-2 text-emerald-400">
+                        <i data-lucide="camera" class="w-5 h-5"></i>
+                        <span>スキャナー (カメラ / アップロード)</span>
+                    </h2>
+                    <button id="btn-camera-toggle" onclick="toggleCamera()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-semibold text-white transition flex items-center space-x-1.5 shadow-md">
+                        <i data-lucide="video" class="w-3.5 h-3.5"></i>
+                        <span id="camera-btn-text">カメラ起動</span>
+                    </button>
+                </div>
+
+                <!-- エラーメッセージ表示エリア -->
+                <div id="camera-error-box" class="hidden bg-rose-500/20 border border-rose-500/40 rounded-xl p-3 text-xs text-rose-300 flex items-start space-x-2">
+                    <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5"></i>
+                    <span id="camera-error-msg">カメラを起動できませんでした。</span>
+                </div>
+
+                <!-- ビデオ / キャプチャプレビュー -->
+                <div class="relative bg-slate-950 rounded-xl overflow-hidden aspect-square border border-slate-700 flex items-center justify-center">
+                    <video id="webcam-video" class="w-full h-full object-contain hidden" autoplay playsinline muted></video>
+                    <!-- 非表示の解析用Canvas -->
+                    <canvas id="scanner-canvas" class="hidden"></canvas>
+                    
+                    <div id="camera-placeholder" class="text-center p-6 text-slate-500">
+                        <i data-lucide="camera-off" class="w-12 h-12 mx-auto mb-2 opacity-40"></i>
+                        <p class="text-xs">「カメラ起動」ボタンを押すか、<br>下部からQRコード画像をアップロードしてください</p>
+                    </div>
+
+                    <!-- スキャン検出時の枠フラッシュエフェクト -->
+                    <div id="scan-overlay" class="absolute inset-0 border-4 border-emerald-500/0 pointer-events-none transition-all duration-150"></div>
+                </div>
+
+                <!-- フォールバック: 画像ファイルアップロード -->
+                <div class="pt-2">
+                    <label class="block text-xs font-semibold text-slate-400 mb-1.5">カメラが使えない場合のQR画像読み込み</label>
+                    <label class="flex items-center justify-center px-4 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl cursor-pointer text-xs font-medium text-slate-300 transition shadow-inner">
+                        <i data-lucide="upload" class="w-4 h-4 mr-2 text-indigo-400"></i>
+                        <span>QRコード画像ファイルをアップロード（複数可・まとめて選択）</span>
+                        <input type="file" id="qr-file-input" accept="image/*" multiple class="hidden" onchange="handleImageFiles(this.files)">
+                    </label>
+                </div>
+
+                <!-- プログレスバー -->
+                <div class="space-y-2 pt-2">
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="text-slate-400">データ受信進行度</span>
+                        <span id="rx-percent" class="text-emerald-400 font-mono">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-900 h-3 rounded-full overflow-hidden border border-slate-700">
+                        <div id="rx-progress-bar" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+                    </div>
+                    <div class="flex justify-between text-[11px] text-slate-500 font-mono">
+                        <span id="rx-packets-status">受信済: 0 / 未定</span>
+                        <span id="rx-missing-status">未読み取りコマあり</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右側: 復元結果 -->
+            <div class="lg:col-span-6 space-y-4 bg-slate-800/60 p-5 sm:p-6 rounded-2xl border border-slate-700/60 backdrop-blur flex flex-col h-full">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-base font-bold flex items-center space-x-2 text-indigo-400">
+                        <i data-lucide="file-text" class="w-5 h-5"></i>
+                        <span>復元されたテキスト</span>
+                    </h2>
+                    <button onclick="clearReceiver()" class="text-xs text-slate-400 hover:text-rose-400 transition flex items-center space-x-1">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        <span>クリア</span>
+                    </button>
+                </div>
+
+                <div class="relative flex-1">
+                    <textarea id="reconstructed-text" rows="10" readonly class="w-full h-full min-h-[240px] bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm font-mono focus:outline-none text-emerald-300 resize-none placeholder-slate-700" placeholder="受信が完了すると、復元されたデータがここに表示されます..."></textarea>
+                </div>
+
+                <div class="pt-2 flex gap-3">
+                    <button id="btn-copy" onclick="copyResult()" disabled class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 rounded-xl text-white font-bold text-sm transition flex items-center justify-center space-x-2 shadow-lg">
+                        <i data-lucide="copy" class="w-4 h-4"></i>
+                        <span>テキストをコピー</span>
+                    </button>
+                </div>
+
+                <!-- 復元成功メッセージ -->
+                <div id="success-toast" class="hidden bg-emerald-500/20 border border-emerald-500/40 rounded-xl p-3 text-xs text-emerald-300 flex items-center space-x-2">
+                    <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400 flex-shrink-0"></i>
+                    <span>すべてのコマを受信し、データが完全に復元されました！</span>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- コピー完了通知トースト -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-slate-800 text-white px-4 py-3 rounded-xl border border-slate-700 shadow-2xl flex items-center space-x-2 opacity-0 pointer-events-none transition-all duration-300 translate-y-2 z-50">
+        <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
+        <span id="toast-message" class="text-xs font-semibold">コピーしました</span>
+    </div>
+
+    <!-- JavaScript ロジック -->
+    <script>
+        // Lucideアイコンの初期化
+        lucide.createIcons();
+
+        // -----------------------------------------------------------------
+        // グローバル状態管理
+        // -----------------------------------------------------------------
+        let currentTab = 'sender';
+
+        // 送信側
+        let sendChunks = [];
+        let sendTransferId = '';
+        let currentFrameIndex = 0;
+        let isPlaying = false;
+        let playTimer = null;
+        let qrcodeObj = null;
+        let startTime = null;
+        let timerInterval = null;
+
+        // 受信側
+        let isCameraScanning = false;
+        let videoStream = null;
+        let scanAnimationFrameId = null;
+        let receivedChunks = new Map(); // index -> content
+        let totalChunksExpected = null;
+        let currentTransferId = null;
+        let lastCameraScanAt = 0;
+        const CAMERA_SCAN_INTERVAL_MS = 100; // カメラ解析は最大約10回/秒
+
+        // -----------------------------------------------------------------
+        // タブ切り替え処理
+        // -----------------------------------------------------------------
+        function switchTab(tab) {
+            currentTab = tab;
+            const senderBtn = document.getElementById('tab-sender-btn');
+            const receiverBtn = document.getElementById('tab-receiver-btn');
+            const senderSec = document.getElementById('sender-section');
+            const receiverSec = document.getElementById('receiver-section');
+
+            if (tab === 'sender') {
+                senderBtn.className = "flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 bg-indigo-600 text-white shadow-lg";
+                receiverBtn.className = "flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 text-slate-400 hover:text-white";
+                senderSec.classList.remove('hidden');
+                receiverSec.classList.add('hidden');
+                stopCamera();
+            } else {
+                receiverBtn.className = "flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 bg-emerald-600 text-white shadow-lg";
+                senderBtn.className = "flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 text-slate-400 hover:text-white";
+                receiverSec.classList.remove('hidden');
+                senderSec.classList.add('hidden');
+                pauseSender();
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // 送信側 (Sender) ロジック
+        // -----------------------------------------------------------------
+        const sendTextInput = document.getElementById('send-text-input');
+        const chunkSizeSlider = document.getElementById('chunk-size-slider');
+        const chunkSizeVal = document.getElementById('chunk-size-val');
+        const fpsSlider = document.getElementById('fps-slider');
+        const fpsVal = document.getElementById('fps-val');
+
+        sendTextInput.addEventListener('input', prepareDataAndUI);
+        chunkSizeSlider.addEventListener('input', (e) => {
+            chunkSizeVal.innerText = e.target.value;
+            prepareDataAndUI();
+        });
+        fpsSlider.addEventListener('input', (e) => {
+            fpsVal.innerText = e.target.value;
+            if (isPlaying) {
+                pauseSender();
+                playSender();
+            }
+        });
+
+        function createTransferId() {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                return window.crypto.randomUUID();
+            }
+            return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        }
+
+        function prepareDataAndUI() {
+            const text = sendTextInput.value;
+            const characters = Array.from(text); // 絵文字などのサロゲートペアを分断しない
+            document.getElementById('char-count').innerText = `${characters.length} 文字`;
+            pauseSender();
+            startTime = null;
+            stopTimer();
+            document.getElementById('sender-timer-text').innerText = '00:00';
+
+            if (characters.length === 0) {
+                sendChunks = [];
+                sendTransferId = '';
+                currentFrameIndex = 0;
+                document.getElementById('estimated-chunks').innerText = `0 コマ`;
+                document.getElementById('sender-progress-text').innerText = `0 / 0`;
+                document.getElementById('qr-placeholder').classList.remove('hidden');
+                document.getElementById('qrcode-container').innerHTML = '';
+                updateControlButtons(false);
+                return;
+            }
+
+            const chunkSize = parseInt(chunkSizeSlider.value, 10);
+            const rawChunks = [];
+            for (let i = 0; i < characters.length; i += chunkSize) {
+                rawChunks.push(characters.slice(i, i + chunkSize).join(''));
+            }
+
+            const total = rawChunks.length;
+            sendTransferId = createTransferId();
+            document.getElementById('estimated-chunks').innerText = `${total} コマ`;
+
+            // 新形式: ODT2|転送ID|コマ番号|総コマ数|データ
+            // 受信側は旧形式 [index]/[total]|[payload] も読み取れる。
+            sendChunks = rawChunks.map((chunk, idx) =>
+                `ODT2|${sendTransferId}|${idx + 1}|${total}|${chunk}`
+            );
+
+            currentFrameIndex = 0;
+            document.getElementById('qr-placeholder').classList.add('hidden');
+            updateControlButtons(true);
+            renderCurrentFrame();
+        }
+
+        function renderCurrentFrame() {
+            if (sendChunks.length === 0) return;
+
+            const qrContainer = document.getElementById('qrcode-container');
+            qrContainer.innerHTML = '';
+
+            const payload = sendChunks[currentFrameIndex];
+            if (typeof QRCode !== 'function') {
+                qrContainer.textContent = 'QRコード生成ライブラリを読み込めませんでした。ネット接続を確認してください。';
+                return;
+            }
+
+            try {
+                qrcodeObj = new QRCode(qrContainer, {
+                    text: payload,
+                    width: 250,
+                    height: 250,
+                    colorDark: "#000000",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            } catch (error) {
+                console.error('QR generation error:', error);
+                qrContainer.textContent = 'QRコードを生成できませんでした。1コマの文字数を減らしてください。';
+                return;
+            }
+
+            document.getElementById('sender-progress-text').innerText = `${currentFrameIndex + 1} / ${sendChunks.length}`;
+        }
+
+        function togglePlay() {
+            if (isPlaying) {
+                pauseSender();
+            } else {
+                playSender();
+            }
+        }
+
+        function playSender() {
+            if (sendChunks.length === 0) return;
+            isPlaying = true;
+            document.getElementById('play-icon').setAttribute('data-lucide', 'pause');
+            document.getElementById('play-text').innerText = '一時停止';
+            lucide.createIcons();
+
+            const fps = parseInt(fpsSlider.value, 10);
+            const intervalMs = 1000 / fps;
+
+            if (!startTime) {
+                startTime = Date.now();
+                startTimer();
+            }
+
+            playTimer = setInterval(() => {
+                currentFrameIndex = (currentFrameIndex + 1) % sendChunks.length;
+                renderCurrentFrame();
+            }, intervalMs);
+        }
+
+        function pauseSender() {
+            isPlaying = false;
+            if (playTimer) clearInterval(playTimer);
+            playTimer = null;
+            document.getElementById('play-icon').setAttribute('data-lucide', 'play');
+            document.getElementById('play-text').innerText = '再生';
+            lucide.createIcons();
+        }
+
+        function stepFrame(dir) {
+            if (sendChunks.length === 0) return;
+            pauseSender();
+            currentFrameIndex = (currentFrameIndex + dir + sendChunks.length) % sendChunks.length;
+            renderCurrentFrame();
+        }
+
+        function resetSender() {
+            pauseSender();
+            currentFrameIndex = 0;
+            startTime = null;
+            stopTimer();
+            document.getElementById('sender-timer-text').innerText = '00:00';
+            renderCurrentFrame();
+        }
+
+        function startTimer() {
+            stopTimer();
+            timerInterval = setInterval(() => {
+                if (!startTime) return;
+                const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+                const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+                const s = String(elapsedSec % 60).padStart(2, '0');
+                document.getElementById('sender-timer-text').innerText = `${m}:${s}`;
+            }, 500);
+        }
+
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = null;
+        }
+
+        function updateControlButtons(enabled) {
+            document.getElementById('btn-play').disabled = !enabled;
+            document.getElementById('btn-prev').disabled = !enabled;
+            document.getElementById('btn-next').disabled = !enabled;
+        }
+
+        // -----------------------------------------------------------------
+        // 受信側 (Receiver) ロジック
+        // -----------------------------------------------------------------
+        const video = document.getElementById('webcam-video');
+        const canvasElement = document.getElementById('scanner-canvas');
+        const canvas = canvasElement.getContext('2d', { willReadFrequently: true });
+
+        async function toggleCamera() {
+            if (isCameraScanning) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        }
+
+        async function startCamera() {
+            hideCameraError();
+
+            if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+                showCameraError('この環境ではカメラを利用できません。HTTPSまたはlocalhostでページを開いてください。');
+                return;
+            }
+            if (typeof jsQR !== 'function') {
+                showCameraError('QR読み取りライブラリを読み込めませんでした。ネット接続を確認してページを再読み込みしてください。');
+                return;
+            }
+
+            try {
+                // 背面カメラを優先。機種が対応しない場合は通常のカメラ指定で再試行。
+                const preferredConstraints = {
+                    audio: false,
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                };
+
+                try {
+                    videoStream = await navigator.mediaDevices.getUserMedia(preferredConstraints);
+                } catch (firstError) {
+                    if (firstError.name === 'NotFoundError' || firstError.name === 'OverconstrainedError') {
+                        videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    } else {
+                        throw firstError;
+                    }
+                }
+
+                video.srcObject = videoStream;
+                video.setAttribute('playsinline', 'true');
+                await video.play();
+
+                video.classList.remove('hidden');
+                document.getElementById('camera-placeholder').classList.add('hidden');
+                isCameraScanning = true;
+                lastCameraScanAt = 0;
+
+                document.getElementById('camera-btn-text').innerText = 'カメラ停止';
+                const btn = document.getElementById('btn-camera-toggle');
+                btn.classList.replace('bg-emerald-600', 'bg-rose-600');
+                btn.classList.replace('hover:bg-emerald-500', 'hover:bg-rose-500');
+
+                scanAnimationFrameId = requestAnimationFrame(scanTick);
+            } catch (err) {
+                console.error('Camera startup error:', err);
+                let errMsg = 'カメラを起動できませんでした。ブラウザのカメラ権限を確認してください。';
+                if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+                    errMsg = 'カメラのアクセスが拒否されました。ブラウザの設定でカメラを許可してください。';
+                } else if (err.name === 'NotFoundError') {
+                    errMsg = '利用可能なカメラが見つかりませんでした。';
+                } else if (err.name === 'NotReadableError') {
+                    errMsg = 'カメラを他のアプリが使用している可能性があります。他のアプリを閉じて再試行してください。';
+                } else if (err.name === 'OverconstrainedError') {
+                    errMsg = 'このカメラは指定した設定に対応していません。別のカメラを試してください。';
+                }
+                showCameraError(errMsg);
+                stopCamera();
+            }
+        }
+
+        function stopCamera() {
+            isCameraScanning = false;
+            if (scanAnimationFrameId) {
+                cancelAnimationFrame(scanAnimationFrameId);
+                scanAnimationFrameId = null;
+            }
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            if (video) {
+                video.pause();
+                video.srcObject = null;
+                video.classList.add('hidden');
+            }
+            document.getElementById('camera-placeholder').classList.remove('hidden');
+            document.getElementById('camera-btn-text').innerText = 'カメラ起動';
+            const btn = document.getElementById('btn-camera-toggle');
+            if (btn) {
+                btn.classList.replace('bg-rose-600', 'bg-emerald-600');
+                btn.classList.replace('hover:bg-rose-500', 'hover:bg-emerald-500');
+            }
+        }
+
+        function showCameraError(msg) {
+            const box = document.getElementById('camera-error-box');
+            document.getElementById('camera-error-msg').innerText = msg;
+            box.classList.remove('hidden');
+        }
+
+        function hideCameraError() {
+            document.getElementById('camera-error-box').classList.add('hidden');
+        }
+
+        // カメラ映像は最大約10回/秒・長辺1280pxで解析し、端末への負荷を軽減。
+        function scanTick(timestamp) {
+            if (!isCameraScanning) return;
+
+            if (video.readyState >= video.HAVE_CURRENT_DATA && video.videoWidth > 0 &&
+                timestamp - lastCameraScanAt >= CAMERA_SCAN_INTERVAL_MS) {
+                lastCameraScanAt = timestamp;
+
+                try {
+                    const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
+                    const scanWidth = Math.max(1, Math.round(video.videoWidth * scale));
+                    const scanHeight = Math.max(1, Math.round(video.videoHeight * scale));
+                    if (canvasElement.width !== scanWidth || canvasElement.height !== scanHeight) {
+                        canvasElement.width = scanWidth;
+                        canvasElement.height = scanHeight;
+                    }
+                    canvas.drawImage(video, 0, 0, scanWidth, scanHeight);
+                    const imageData = canvas.getImageData(0, 0, scanWidth, scanHeight);
+                    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                        inversionAttempts: 'attemptBoth'
+                    });
+
+                    if (code && code.data) {
+                        processScannedData(code.data);
+                        triggerScanSuccessVisual();
+                    }
+                } catch (e) {
+                    console.error('QR scan error:', e);
+                }
+            }
+
+            if (isCameraScanning) {
+                scanAnimationFrameId = requestAnimationFrame(scanTick);
+            }
+        }
+
+        function triggerScanSuccessVisual() {
+            const overlay = document.getElementById('scan-overlay');
+            overlay.classList.replace('border-emerald-500/0', 'border-emerald-500');
+            setTimeout(() => {
+                overlay.classList.replace('border-emerald-500', 'border-emerald-500/0');
+            }, 120);
+        }
+
+        // 画像ファイルからQRコードを読み取る。
+        function handleImageFiles(files) {
+            if (!files || files.length === 0) return;
+            if (typeof jsQR !== 'function') {
+                showCameraError('QR読み取りライブラリを読み込めませんでした。ネット接続を確認してください。');
+                return;
+            }
+            hideCameraError();
+
+            Array.from(files).forEach(file => {
+                if (!file.type || !file.type.startsWith('image/')) {
+                    showToast(`画像ファイルではありません: ${file.name}`);
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onerror = () => showToast(`画像を読み込めませんでした: ${file.name}`);
+                reader.onload = function(event) {
+                    const img = new Image();
+                    img.onerror = () => showToast(`画像を開けませんでした: ${file.name}`);
+                    img.onload = function() {
+                        try {
+                            // 巨大画像は長辺2000pxに縮小してメモリ使用量を抑える。
+                            const scale = Math.min(1, 2000 / Math.max(img.width, img.height));
+                            const width = Math.max(1, Math.round(img.width * scale));
+                            const height = Math.max(1, Math.round(img.height * scale));
+                            const tempCanvas = document.createElement('canvas');
+                            tempCanvas.width = width;
+                            tempCanvas.height = height;
+                            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+                            if (!tempCtx) throw new Error('Canvasを利用できません');
+                            tempCtx.drawImage(img, 0, 0, width, height);
+
+                            const imgData = tempCtx.getImageData(0, 0, width, height);
+                            const code = jsQR(imgData.data, imgData.width, imgData.height, {
+                                inversionAttempts: 'attemptBoth'
+                            });
+
+                            if (code && code.data) {
+                                const before = receivedChunks.size;
+                                processScannedData(code.data);
+                                showToast(receivedChunks.size > before ? `受信しました: ${file.name}` : `QRコードを読み取りました: ${file.name}`);
+                            } else {
+                                showToast(`QRコードを検出できませんでした: ${file.name}`);
+                            }
+                        } catch (error) {
+                            console.error('Image QR read error:', error);
+                            showToast(`画像を解析できませんでした: ${file.name}`);
+                        }
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // 同じファイルを続けて選べるようにする。
+            document.getElementById('qr-file-input').value = '';
+        }
+
+        // 新形式と旧形式の両方を受け付ける。
+        function processScannedData(data) {
+            if (typeof data !== 'string') return false;
+
+            let transferId;
+            let idx;
+            let total;
+            let payload;
+            let match = data.match(/^ODT2\|([a-zA-Z0-9-]+)\|(\d+)\|(\d+)\|([\s\S]*)$/);
+
+            if (match) {
+                transferId = match[1];
+                idx = Number.parseInt(match[2], 10);
+                total = Number.parseInt(match[3], 10);
+                payload = match[4];
+            } else {
+                // 旧バージョンとの互換性: [index]/[total]|[payload]
+                match = data.match(/^(\d+)\/(\d+)\|([\s\S]*)$/);
+                if (!match) return false;
+                transferId = 'legacy';
+                idx = Number.parseInt(match[1], 10);
+                total = Number.parseInt(match[2], 10);
+                payload = match[3];
+            }
+
+            if (!Number.isSafeInteger(idx) || !Number.isSafeInteger(total) ||
+                total < 1 || total > 100000 || idx < 1 || idx > total) {
+                return false;
+            }
+
+            // 転送IDが変わったら前の受信データを消し、別データの混在を防ぐ。
+            if (currentTransferId !== transferId) {
+                receivedChunks.clear();
+                currentTransferId = transferId;
+                totalChunksExpected = total;
+                document.getElementById('success-toast').classList.add('hidden');
+                document.getElementById('reconstructed-text').value = '';
+                document.getElementById('btn-copy').disabled = true;
+            } else if (totalChunksExpected !== total) {
+                return false;
+            }
+
+            if (!receivedChunks.has(idx)) {
+                receivedChunks.set(idx, payload);
+                updateReceiverUI();
+                return true;
+            }
+            return false;
+        }
+
+        function updateReceiverUI() {
+            if (!totalChunksExpected) return;
+
+            const receivedCount = receivedChunks.size;
+            const percent = Math.floor((receivedCount / totalChunksExpected) * 100);
+
+            document.getElementById('rx-percent').innerText = `${percent}%`;
+            document.getElementById('rx-progress-bar').style.width = `${percent}%`;
+            document.getElementById('rx-packets-status').innerText = `受信済: ${receivedCount} / ${totalChunksExpected}`;
+
+            const missing = [];
+            for (let i = 1; i <= totalChunksExpected; i++) {
+                if (!receivedChunks.has(i)) missing.push(i);
+            }
+
+            if (missing.length > 0) {
+                document.getElementById('rx-missing-status').innerText = `未取得コマ: [${missing.slice(0, 4).join(', ')}${missing.length > 4 ? '...' : ''}]`;
+            } else {
+                document.getElementById('rx-missing-status').innerText = `全コマ受信完了`;
+                document.getElementById('success-toast').classList.remove('hidden');
+                reconstructText();
+            }
+        }
+
+        function reconstructText() {
+            let fullText = "";
+            for (let i = 1; i <= totalChunksExpected; i++) {
+                fullText += receivedChunks.get(i) || "";
+            }
+
+            const outputEl = document.getElementById('reconstructed-text');
+            outputEl.value = fullText;
+            document.getElementById('btn-copy').disabled = false;
+        }
+
+        function clearReceiver() {
+            receivedChunks.clear();
+            totalChunksExpected = null;
+            currentTransferId = null;
+            document.getElementById('rx-percent').innerText = '0%';
+            document.getElementById('rx-progress-bar').style.width = '0%';
+            document.getElementById('rx-packets-status').innerText = '受信済: 0 / 未定';
+            document.getElementById('rx-missing-status').innerText = '未読み取りコマあり';
+            document.getElementById('reconstructed-text').value = '';
+            document.getElementById('btn-copy').disabled = true;
+            document.getElementById('success-toast').classList.add('hidden');
+        }
+
+        function copyResult() {
+            const text = document.getElementById('reconstructed-text').value;
+            if (!text) return;
+
+            const temp = document.createElement("textarea");
+            temp.value = text;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand("copy");
+            document.body.removeChild(temp);
+
+            showToast("テキストをコピーしました！");
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-message').innerText = msg;
+            toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-2');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-2');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
