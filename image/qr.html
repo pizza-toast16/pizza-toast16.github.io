@@ -1,506 +1,617 @@
 <!DOCTYPE html>
-<html lang="ja" class="h-full bg-slate-900 text-slate-100">
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Code Reader</title>
-    <!-- Tailwind CSS -->
+    <title>光学式データ転送システム (Animated QR Data Transfer)</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- html5-qrcode Library -->
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <!-- QRCode.js for generating QR codes -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- jsQR for camera scanning -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
         }
-        /* Hide html5-qrcode standard visual clutter */
-        #reader video {
-            object-fit: cover !important;
-            border-radius: 0.75rem;
-        }
-        #reader {
-            border: none !important;
-        }
-        #reader__scan_region {
-            background: transparent;
-        }
-        #reader__dashboard {
-            display: none !important;
-        }
-        /* Custom scanner overlay line animation */
-        @keyframes scanAnimation {
-            0% { top: 0%; opacity: 0.8; }
-            50% { top: 95%; opacity: 1; }
-            100% { top: 0%; opacity: 0.8; }
-        }
-        .scan-line {
-            position: absolute;
-            width: 100%;
-            height: 3px;
-            background: linear-gradient(90deg, transparent, #3b82f6, #60a5fa, #3b82f6, transparent);
-            box-shadow: 0 0 15px #3b82f6;
-            animation: scanAnimation 2.5s infinite ease-in-out;
+        .canvas-container canvas {
+            max-width: 100%;
+            height: auto;
         }
     </style>
 </head>
-<body class="min-h-full flex flex-col justify-between items-center p-4 md:p-8">
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
 
-    <!-- Header Section -->
-    <header class="w-full max-w-md text-center my-4">
-        <div class="inline-flex items-center gap-3 mb-2">
-            <div class="p-3 bg-blue-600/20 text-blue-400 rounded-2xl border border-blue-500/30">
-                <i class="fa-solid fa-qrcode text-2xl"></i>
+    <!-- ヘッダー -->
+    <header class="border-b border-slate-800 bg-slate-950/50 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-indigo-600 rounded-lg text-white">
+                    <i data-lucide="qr-code" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-none">Optical Data Transfer</h1>
+                    <p class="text-xs text-slate-400 mt-1">アニメーションQRコードによるオフラインデータ転送</p>
+                </div>
             </div>
-            <h1 class="text-2xl font-bold tracking-tight text-white">QR スキャナー</h1>
+            <!-- モード切り替えタブ -->
+            <div class="flex bg-slate-800 p-1 rounded-xl border border-slate-700 w-full sm:w-auto">
+                <button id="tab-sender-btn" onclick="switchTab('sender')" class="flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 bg-indigo-600 text-white shadow-lg">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                    <span>送信 (Sender)</span>
+                </button>
+                <button id="tab-receiver-btn" onclick="switchTab('receiver')" class="flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 text-slate-400 hover:text-white">
+                    <i data-lucide="scan" class="w-4 h-4"></i>
+                    <span>受信 (Receiver)</span>
+                </button>
+            </div>
         </div>
-        <p class="text-slate-400 text-sm">カメラまたは画像ファイルから速やかに解読します</p>
     </header>
 
-    <!-- Main Container -->
-    <main class="w-full max-w-md flex-1 flex flex-col gap-5">
+    <!-- メインコンテンツ -->
+    <main class="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 flex flex-col">
         
-        <!-- Mode Switcher Tabs -->
-        <div class="bg-slate-800/80 p-1.5 rounded-xl flex border border-slate-700/60 shadow-inner">
-            <button id="tab-camera" onclick="switchMode('camera')" class="flex-1 py-2.5 px-4 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 bg-blue-600 text-white shadow-md">
-                <i class="fa-solid fa-camera"></i> カメラでスキャン
-            </button>
-            <button id="tab-file" onclick="switchMode('file')" class="flex-1 py-2.5 px-4 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 text-slate-400 hover:text-white">
-                <i class="fa-solid fa-image"></i> 画像を選択
-            </button>
-        </div>
-
-        <!-- Camera Scanner Card -->
-        <div id="camera-section" class="bg-slate-800/50 backdrop-blur-md rounded-2xl p-4 border border-slate-700/50 shadow-xl flex flex-col items-center relative overflow-hidden">
-            
-            <!-- Camera Viewport Frame -->
-            <div class="relative w-full aspect-square bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center border border-slate-700">
-                <!-- Video Element Target -->
-                <div id="reader" class="w-full h-full"></div>
-
-                <!-- Custom Overlay UI when scanning -->
-                <div id="scanner-overlay" class="absolute inset-0 pointer-events-none hidden">
-                    <div class="scan-line"></div>
-                    <!-- Frame corners -->
-                    <div class="absolute top-4 left-4 w-6 h-6 border-t-2 border-l-2 border-blue-400 rounded-tl-sm"></div>
-                    <div class="absolute top-4 right-4 w-6 h-6 border-t-2 border-r-2 border-blue-400 rounded-tr-sm"></div>
-                    <div class="absolute bottom-4 left-4 w-6 h-6 border-b-2 border-l-2 border-blue-400 rounded-bl-sm"></div>
-                    <div class="absolute bottom-4 right-4 w-6 h-6 border-b-2 border-r-2 border-blue-400 rounded-br-sm"></div>
+        <!-- ================= 送信モード ================= -->
+        <div id="sender-section" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <!-- 左側: 設定・入力 -->
+            <div class="lg:col-span-6 space-y-5 bg-slate-800/60 p-5 sm:p-6 rounded-2xl border border-slate-700/60 backdrop-blur">
+                <h2 class="text-base font-bold flex items-center space-x-2 text-indigo-400">
+                    <i data-lucide="edit-3" class="w-5 h-5"></i>
+                    <span>データ入力と転送設定</span>
+                </h2>
+                
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-2">送信テキストデータ</label>
+                    <textarea id="send-text-input" rows="5" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-200 resize-y placeholder-slate-600" placeholder="ここに転送したいテキストやコードを入力してください..."></textarea>
+                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                        <span id="char-count">0 文字</span>
+                        <span id="estimated-chunks">0 コマ</span>
+                    </div>
                 </div>
 
-                <!-- Camera Start Placeholder -->
-                <div id="camera-placeholder" class="flex flex-col items-center justify-center p-6 text-center">
-                    <i class="fa-solid fa-camera-rotate text-4xl text-slate-500 mb-3 animate-pulse"></i>
-                    <p class="text-slate-300 text-sm font-medium mb-4">カメラアクセスが必要です</p>
-                    <button onclick="startCamera()" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-xl text-sm transition-colors shadow-lg shadow-blue-600/30 flex items-center gap-2">
-                        <i class="fa-solid fa-play"></i> カメラを起動
+                <!-- 設定パネル -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/50">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-xs font-semibold text-slate-300">1コマあたりの文字数</label>
+                            <span id="chunk-size-val" class="text-xs font-mono font-bold text-indigo-400">80</span>
+                        </div>
+                        <input type="range" id="chunk-size-slider" min="20" max="250" value="80" class="w-full accent-indigo-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                        <p class="text-[10px] text-slate-500 mt-1">小さくすると読み取りが安定します</p>
+                    </div>
+
+                    <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/50">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-xs font-semibold text-slate-300">表示速度 (FPS)</label>
+                            <span id="fps-val" class="text-xs font-mono font-bold text-indigo-400">5</span>
+                        </div>
+                        <input type="range" id="fps-slider" min="1" max="15" value="5" class="w-full accent-indigo-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                        <p class="text-[10px] text-slate-500 mt-1">高速受信機では値を上げられます</p>
+                    </div>
+                </div>
+
+                <div class="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-300 flex items-start space-x-2">
+                    <i data-lucide="info" class="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5"></i>
+                    <span>受信端末側のカメラのピント・明るさを調整し、画面全体にQRコードが収まるようにかざしてください。</span>
+                </div>
+            </div>
+
+            <!-- 右側: QRコードプレビュー・コントロール -->
+            <div class="lg:col-span-6 space-y-5 bg-slate-800/60 p-5 sm:p-6 rounded-2xl border border-slate-700/60 backdrop-blur flex flex-col items-center justify-center">
+                
+                <!-- QRコード表示エリア -->
+                <div class="relative bg-white p-4 rounded-2xl shadow-2xl flex flex-col items-center justify-center aspect-square w-full max-w-[280px] sm:max-w-[320px]">
+                    <div id="qrcode-container" class="w-full h-full flex items-center justify-center"></div>
+                    <div id="qr-placeholder" class="text-slate-400 text-center p-4">
+                        <i data-lucide="qr-code" class="w-16 h-16 mx-auto mb-2 opacity-30 text-slate-800"></i>
+                        <p class="text-xs font-medium text-slate-500">テキストを入力すると<br>QRコードが生成されます</p>
+                    </div>
+                </div>
+
+                <!-- ステータス表示 -->
+                <div class="w-full bg-slate-900/80 rounded-xl p-3 border border-slate-700/50 flex justify-around text-center">
+                    <div>
+                        <div class="text-[10px] text-slate-500 uppercase tracking-wider">コマ進行度</div>
+                        <div id="sender-progress-text" class="text-sm font-mono font-bold text-indigo-400">0 / 0</div>
+                    </div>
+                    <div class="border-r border-slate-800"></div>
+                    <div>
+                        <div class="text-[10px] text-slate-500 uppercase tracking-wider">ループ経過時間</div>
+                        <div id="sender-timer-text" class="text-sm font-mono font-bold text-slate-300">00:00</div>
+                    </div>
+                </div>
+
+                <!-- 操作ボタン群 -->
+                <div class="flex items-center justify-center space-x-2 w-full">
+                    <button id="btn-prev" onclick="stepFrame(-1)" class="p-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition disabled:opacity-40" disabled>
+                        <i data-lucide="skip-back" class="w-5 h-5"></i>
+                    </button>
+                    <button id="btn-play" onclick="togglePlay()" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white font-bold flex items-center space-x-2 transition shadow-lg disabled:opacity-40" disabled>
+                        <i id="play-icon" data-lucide="play" class="w-5 h-5"></i>
+                        <span id="play-text">再生</span>
+                    </button>
+                    <button id="btn-next" onclick="stepFrame(1)" class="p-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition disabled:opacity-40" disabled>
+                        <i data-lucide="skip-forward" class="w-5 h-5"></i>
+                    </button>
+                    <button id="btn-reset" onclick="resetSender()" class="p-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 hover:text-white transition">
+                        <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
                     </button>
                 </div>
             </div>
+        </div>
 
-            <!-- Camera Controls (Visible when active) -->
-            <div id="camera-controls" class="w-full flex items-center justify-between gap-2 mt-4 hidden">
-                <button onclick="stopCamera()" class="py-2 px-4 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-medium transition-colors flex items-center gap-2">
-                    <i class="fa-solid fa-stop"></i> 停止
-                </button>
-                <div class="flex items-center gap-2">
-                    <button id="torch-btn" onclick="toggleTorch()" class="py-2 px-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl text-xs font-medium transition-colors hidden" title="ライト切り替え">
-                        <i class="fa-solid fa-lightbulb"></i>
-                    </button>
-                    <button id="switch-cam-btn" onclick="switchCamera()" class="py-2 px-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl text-xs font-medium transition-colors" title="カメラ切り替え">
-                        <i class="fa-solid fa-arrows-rotate"></i>
+        <!-- ================= 受信モード ================= -->
+        <div id="receiver-section" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start hidden">
+            <!-- 左側: カメラビュー -->
+            <div class="lg:col-span-6 space-y-4 bg-slate-800/60 p-5 sm:p-6 rounded-2xl border border-slate-700/60 backdrop-blur">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-base font-bold flex items-center space-x-2 text-emerald-400">
+                        <i data-lucide="camera" class="w-5 h-5"></i>
+                        <span>スキャナー</span>
+                    </h2>
+                    <button id="btn-camera-toggle" onclick="toggleCamera()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-semibold text-white transition flex items-center space-x-1.5">
+                        <i data-lucide="video" class="w-3.5 h-3.5"></i>
+                        <span id="camera-btn-text">カメラ起動</span>
                     </button>
                 </div>
-            </div>
-        </div>
 
-        <!-- File Upload Card -->
-        <div id="file-section" class="bg-slate-800/50 backdrop-blur-md rounded-2xl p-6 border border-slate-700/50 shadow-xl hidden flex-col items-center justify-center min-h-[300px]">
-            <label for="qr-input-file" class="w-full h-48 border-2 border-dashed border-slate-600 hover:border-blue-500 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-colors bg-slate-900/40 hover:bg-slate-900/80 p-4 text-center">
-                <i class="fa-solid fa-cloud-arrow-up text-3xl text-slate-400 mb-2"></i>
-                <span class="text-sm font-medium text-slate-200 mb-1">クリックして画像を選択</span>
-                <span class="text-xs text-slate-500">PNG, JPG, WEBP, GIF 等に対応</span>
-                <input type="file" id="qr-input-file" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
-            </label>
-            <div id="file-loading" class="hidden mt-4 text-sm text-blue-400 flex items-center gap-2">
-                <i class="fa-solid fa-spinner animate-spin"></i> 解析中...
-            </div>
-        </div>
+                <!-- ビデオ / キャプチャプレビュー -->
+                <div class="relative bg-slate-950 rounded-xl overflow-hidden aspect-square border border-slate-700 flex items-center justify-center">
+                    <video id="webcam-video" class="w-full h-full object-cover hidden" playsinline></video>
+                    <canvas id="scanner-canvas" class="hidden"></canvas>
+                    
+                    <div id="camera-placeholder" class="text-center p-6 text-slate-500">
+                        <i data-lucide="camera-off" class="w-12 h-12 mx-auto mb-2 opacity-40"></i>
+                        <p class="text-xs">「カメラ起動」ボタンを押して<br>スキャンを開始してください</p>
+                    </div>
 
-        <!-- Status / Toast Notification -->
-        <div id="status-box" class="hidden py-3 px-4 rounded-xl text-xs font-medium border flex items-center gap-2">
-            <i id="status-icon" class="fa-solid"></i>
-            <span id="status-message"></span>
-        </div>
+                    <!-- スキャン検出時の枠インジケーター -->
+                    <div id="scan-overlay" class="absolute inset-0 border-2 border-emerald-500/0 pointer-events-none transition-all duration-150"></div>
+                </div>
 
-        <!-- Scan Result Display Card -->
-        <div id="result-card" class="bg-slate-800 rounded-2xl p-5 border border-slate-700 shadow-xl hidden flex-col gap-3">
-            <div class="flex items-center justify-between border-b border-slate-700/80 pb-3">
-                <span class="text-xs font-semibold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                    <i class="fa-solid fa-circle-check"></i> 検出完了
-                </span>
-                <span id="result-time" class="text-[10px] text-slate-400"></span>
-            </div>
-
-            <!-- Scanned Content Area -->
-            <div class="bg-slate-900/80 rounded-xl p-3 border border-slate-700/50 max-h-40 overflow-y-auto break-all">
-                <p id="result-text" class="text-sm text-slate-200 select-all font-mono"></p>
+                <!-- プログレスバー -->
+                <div class="space-y-2">
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="text-slate-400">データ受信進行度</span>
+                        <span id="rx-percent" class="text-emerald-400 font-mono">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-900 h-3 rounded-full overflow-hidden border border-slate-700">
+                        <div id="rx-progress-bar" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+                    </div>
+                    <div class="flex justify-between text-[11px] text-slate-500 font-mono">
+                        <span id="rx-packets-status">受信済: 0 / 未定</span>
+                        <span id="rx-missing-status">未読み取りコマあり</span>
+                    </div>
+                </div>
             </div>
 
-            <!-- Action Buttons -->
-            <div class="flex items-center gap-2 pt-1">
-                <button onclick="copyToClipboard()" class="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-medium transition-colors flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-copy"></i> コピー
-                </button>
-                <a id="open-url-btn" href="#" target="_blank" rel="noopener noreferrer" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-medium transition-colors flex items-center justify-center gap-2 hidden">
-                    <i class="fa-solid fa-arrow-up-right-from-square"></i> 開く
-                </a>
-            </div>
-        </div>
+            <!-- 右側: 復元結果 -->
+            <div class="lg:col-span-6 space-y-4 bg-slate-800/60 p-5 sm:p-6 rounded-2xl border border-slate-700/60 backdrop-blur flex flex-col h-full">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-base font-bold flex items-center space-x-2 text-indigo-400">
+                        <i data-lucide="file-text" class="w-5 h-5"></i>
+                        <span>復元されたテキスト</span>
+                    </h2>
+                    <button onclick="clearReceiver()" class="text-xs text-slate-400 hover:text-rose-400 transition flex items-center space-x-1">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        <span>クリア</span>
+                    </button>
+                </div>
 
-        <!-- History Container -->
-        <div id="history-container" class="bg-slate-800/30 rounded-2xl p-4 border border-slate-800 hidden flex-col gap-3">
-            <div class="flex items-center justify-between">
-                <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">最近の読み取り履歴</h3>
-                <button onclick="clearHistory()" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">消去</button>
+                <div class="relative flex-1">
+                    <textarea id="reconstructed-text" rows="10" readonly class="w-full h-full min-h-[220px] bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm font-mono focus:outline-none text-emerald-300 resize-none placeholder-slate-700" placeholder="受信が完了すると、復元されたデータがここに表示されます..."></textarea>
+                </div>
+
+                <div class="pt-2 flex gap-3">
+                    <button id="btn-copy" onclick="copyResult()" disabled class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 rounded-xl text-white font-bold text-sm transition flex items-center justify-center space-x-2 shadow-lg">
+                        <i data-lucide="copy" class="w-4 h-4"></i>
+                        <span>テキストをコピー</span>
+                    </button>
+                </div>
+
+                <!-- 復元成功メッセージ -->
+                <div id="success-toast" class="hidden bg-emerald-500/20 border border-emerald-500/40 rounded-xl p-3 text-xs text-emerald-300 flex items-center space-x-2">
+                    <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400 flex-shrink-0"></i>
+                    <span>すべてのコマを受信し、データが完全に復元されました！</span>
+                </div>
             </div>
-            <ul id="history-list" class="space-y-2 max-h-36 overflow-y-auto pr-1"></ul>
         </div>
 
     </main>
 
-    <footer class="mt-8 text-center text-slate-500 text-xs">
-        <p>HTML5 QR Code Reader &bull; Web Camera & File API</p>
-    </footer>
+    <!-- コピー完了通知トースト -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-slate-800 text-white px-4 py-3 rounded-xl border border-slate-700 shadow-2xl flex items-center space-x-2 opacity-0 pointer-events-none transition-all duration-300 translate-y-2">
+        <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
+        <span id="toast-message" class="text-xs font-semibold">コピーしました</span>
+    </div>
 
-    <!-- App Logic Scripts -->
+    <!-- JavaScript ロジック -->
     <script>
-        let html5QrCode = null;
-        let isScanning = false;
-        let currentFacingMode = "environment";
-        let torchEnabled = false;
-        let scanHistory = JSON.parse(localStorage.getItem('qr_scan_history') || '[]');
+        // Lucideアイコンの初期化
+        lucide.createIcons();
 
-        window.onload = () => {
-            renderHistory();
-        };
+        // -----------------------------------------------------------------
+        // グローバル状態管理
+        // -----------------------------------------------------------------
+        let currentTab = 'sender';
 
-        // Switch Tabs: Camera / File
-        function switchMode(mode) {
-            const camTab = document.getElementById('tab-camera');
-            const fileTab = document.getElementById('tab-file');
-            const camSec = document.getElementById('camera-section');
-            const fileSec = document.getElementById('file-section');
+        // 送信側
+        let sendChunks = [];
+        let currentFrameIndex = 0;
+        let isPlaying = false;
+        let playTimer = null;
+        let qrcodeObj = null;
+        let startTime = null;
+        let timerInterval = null;
 
-            if (mode === 'camera') {
-                camTab.className = "flex-1 py-2.5 px-4 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 bg-blue-600 text-white shadow-md";
-                fileTab.className = "flex-1 py-2.5 px-4 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 text-slate-400 hover:text-white";
-                camSec.classList.remove('hidden');
-                camSec.classList.add('flex');
-                fileSec.classList.add('hidden');
-                fileSec.classList.remove('flex');
-            } else {
+        // 受信側
+        let isCameraScanning = false;
+        let videoStream = null;
+        let animationFrameId = null;
+        let receivedChunks = new Map(); // index -> content
+        let totalChunksExpected = null;
+
+        // -----------------------------------------------------------------
+        // タブ切り替え処理
+        // -----------------------------------------------------------------
+        function switchTab(tab) {
+            currentTab = tab;
+            const senderBtn = document.getElementById('tab-sender-btn');
+            const receiverBtn = document.getElementById('tab-receiver-btn');
+            const senderSec = document.getElementById('sender-section');
+            const receiverSec = document.getElementById('receiver-section');
+
+            if (tab === 'sender') {
+                senderBtn.className = "flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 bg-indigo-600 text-white shadow-lg";
+                receiverBtn.className = "flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 text-slate-400 hover:text-white";
+                senderSec.classList.remove('hidden');
+                receiverSec.classList.add('hidden');
+                // 受信カメラ停止
                 stopCamera();
-                fileTab.className = "flex-1 py-2.5 px-4 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 bg-blue-600 text-white shadow-md";
-                camTab.className = "flex-1 py-2.5 px-4 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all duration-200 text-slate-400 hover:text-white";
-                fileSec.classList.remove('hidden');
-                fileSec.classList.add('flex');
-                camSec.classList.add('hidden');
-                camSec.classList.remove('flex');
-            }
-        }
-
-        // Start Web Camera Scanner
-        async function startCamera() {
-            if (isScanning) return;
-            showStatus('', 'hidden');
-
-            try {
-                if (!html5QrCode) {
-                    html5QrCode = new Html5Qrcode("reader");
-                }
-
-                document.getElementById('camera-placeholder').classList.add('hidden');
-                document.getElementById('scanner-overlay').classList.remove('hidden');
-                document.getElementById('camera-controls').classList.remove('hidden');
-                document.getElementById('camera-controls').classList.add('flex');
-
-                const config = { 
-                    fps: 10, 
-                    qrbox: { width: 220, height: 220 },
-                    aspectRatio: 1.0
-                };
-
-                await html5QrCode.start(
-                    { facingMode: currentFacingMode },
-                    config,
-                    onScanSuccess,
-                    onScanFailure
-                );
-
-                isScanning = true;
-                checkTorchSupport();
-
-            } catch (err) {
-                console.error("Camera access error:", err);
-                stopCamera();
-                showStatus("カメラの起動に失敗しました。アクセス許可を確認してください。", "error");
-            }
-        }
-
-        // Stop Camera Scanner
-        async function stopCamera() {
-            if (html5QrCode && isScanning) {
-                try {
-                    await html5QrCode.stop();
-                } catch (e) {
-                    console.error("Stop scanner error", e);
-                }
-            }
-            isScanning = false;
-            torchEnabled = false;
-
-            document.getElementById('camera-placeholder').classList.remove('hidden');
-            document.getElementById('scanner-overlay').classList.add('hidden');
-            document.getElementById('camera-controls').classList.add('hidden');
-            document.getElementById('camera-controls').classList.remove('flex');
-            document.getElementById('torch-btn').classList.add('hidden');
-        }
-
-        // Toggle Facing Camera (Front/Back)
-        async function switchCamera() {
-            currentFacingMode = (currentFacingMode === "environment") ? "user" : "environment";
-            if (isScanning) {
-                await stopCamera();
-                startCamera();
-            }
-        }
-
-        // Torch toggle feature check
-        function checkTorchSupport() {
-            try {
-                const capabilities = html5QrCode.getRunningTrackCapabilities();
-                if (capabilities.torch) {
-                    document.getElementById('torch-btn').classList.remove('hidden');
-                } else {
-                    document.getElementById('torch-btn').classList.add('hidden');
-                }
-            } catch (e) {
-                document.getElementById('torch-btn').classList.add('hidden');
-            }
-        }
-
-        // Toggle Torch Light
-        async function toggleTorch() {
-            if (!html5QrCode || !isScanning) return;
-            try {
-                torchEnabled = !torchEnabled;
-                await html5QrCode.applyVideoConstraints({
-                    advanced: [{ torch: torchEnabled }]
-                });
-                const torchBtn = document.getElementById('torch-btn');
-                if (torchEnabled) {
-                    torchBtn.classList.add('bg-amber-500', 'text-slate-900');
-                    torchBtn.classList.remove('bg-slate-700', 'text-slate-300');
-                } else {
-                    torchBtn.classList.remove('bg-amber-500', 'text-slate-900');
-                    torchBtn.classList.add('bg-slate-700', 'text-slate-300');
-                }
-            } catch (e) {
-                console.error("Torch activation failed", e);
-            }
-        }
-
-        // Handle Image File Selection
-        async function handleFileSelect(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            const loadingIndicator = document.getElementById('file-loading');
-            loadingIndicator.classList.remove('hidden');
-            showStatus('', 'hidden');
-
-            try {
-                if (!html5QrCode) {
-                    html5QrCode = new Html5Qrcode("reader");
-                }
-                const result = await html5QrCode.scanFile(file, true);
-                onScanSuccess(result);
-            } catch (err) {
-                console.error("File scan error:", err);
-                showStatus("QRコードが見つかりませんでした。別の画像をお試しください。", "error");
-            } finally {
-                loadingIndicator.classList.add('hidden');
-                event.target.value = ''; // Reset input
-            }
-        }
-
-        // On Scan Success Callback
-        function onScanSuccess(decodedText) {
-            // Display Scan Result
-            const resultCard = document.getElementById('result-card');
-            const resultText = document.getElementById('result-text');
-            const openUrlBtn = document.getElementById('open-url-btn');
-            const resultTime = document.getElementById('result-time');
-
-            resultText.textContent = decodedText;
-            resultTime.textContent = new Date().toLocaleTimeString();
-
-            // Check if result is a valid URL
-            if (isValidUrl(decodedText)) {
-                openUrlBtn.href = decodedText;
-                openUrlBtn.classList.remove('hidden');
             } else {
-                openUrlBtn.classList.add('hidden');
+                receiverBtn.className = "flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 bg-emerald-600 text-white shadow-lg";
+                senderBtn.className = "flex-1 sm:flex-initial px-6 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center space-x-2 text-slate-400 hover:text-white";
+                receiverSec.classList.remove('hidden');
+                senderSec.classList.add('hidden');
+                // 送信アニメーション一時停止
+                pauseSender();
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // 送信側 (Sender) ロジック
+        // -----------------------------------------------------------------
+        const sendTextInput = document.getElementById('send-text-input');
+        const chunkSizeSlider = document.getElementById('chunk-size-slider');
+        const chunkSizeVal = document.getElementById('chunk-size-val');
+        const fpsSlider = document.getElementById('fps-slider');
+        const fpsVal = document.getElementById('fps-val');
+
+        sendTextInput.addEventListener('input', prepareDataAndUI);
+        chunkSizeSlider.addEventListener('input', (e) => {
+            chunkSizeVal.innerText = e.target.value;
+            prepareDataAndUI();
+        });
+        fpsSlider.addEventListener('input', (e) => {
+            fpsVal.innerText = e.target.value;
+            if (isPlaying) {
+                // 再生中ならタイマー更新
+                pauseSender();
+                playSender();
+            }
+        });
+
+        function prepareDataAndUI() {
+            const text = sendTextInput.value;
+            document.getElementById('char-count').innerText = `${text.length} 文字`;
+
+            if (!text) {
+                sendChunks = [];
+                currentFrameIndex = 0;
+                document.getElementById('estimated-chunks').innerText = `0 コマ`;
+                document.getElementById('sender-progress-text').innerText = `0 / 0`;
+                document.getElementById('qr-placeholder').classList.remove('hidden');
+                document.getElementById('qrcode-container').innerHTML = '';
+                updateControlButtons(false);
+                pauseSender();
+                return;
             }
 
-            resultCard.classList.remove('hidden');
-            resultCard.classList.add('flex');
-
-            // Save to history
-            addHistoryItem(decodedText);
+            const chunkSize = parseInt(chunkSizeSlider.value, 10);
             
-            // Audio Feedback (Optional optional soft tone using Web Audio API)
-            playBeepSound();
+            // データを分割
+            const rawChunks = [];
+            for (let i = 0; i < text.length; i += chunkSize) {
+                rawChunks.push(text.substring(i, i + chunkSize));
+            }
+
+            const total = rawChunks.length;
+            document.getElementById('estimated-chunks').innerText = `${total} コマ`;
+
+            // フォーマット付け: [index]/[total]|[payload]
+            sendChunks = rawChunks.map((chunk, idx) => `${idx + 1}/${total}|${chunk}`);
+
+            currentFrameIndex = 0;
+            document.getElementById('qr-placeholder').classList.add('hidden');
+            updateControlButtons(true);
+            renderCurrentFrame();
         }
 
-        // On Scan Failure (Ignore constant frame miss logs)
-        function onScanFailure(error) {
-            // Silence frame scan misses
+        function renderCurrentFrame() {
+            if (sendChunks.length === 0) return;
+
+            const qrContainer = document.getElementById('qrcode-container');
+            qrContainer.innerHTML = ''; // クリア
+
+            const payload = sendChunks[currentFrameIndex];
+
+            // QRCode.js で生成
+            qrcodeObj = new QRCode(qrContainer, {
+                text: payload,
+                width: 250,
+                height: 250,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.L // 容量重視でエラー訂正レベルLに設定
+            });
+
+            document.getElementById('sender-progress-text').innerText = `${currentFrameIndex + 1} / ${sendChunks.length}`;
         }
 
-        // Clipboard Copy Helper
-        function copyToClipboard() {
-            const text = document.getElementById('result-text').textContent;
+        function togglePlay() {
+            if (isPlaying) {
+                pauseSender();
+            } else {
+                playSender();
+            }
+        }
+
+        function playSender() {
+            if (sendChunks.length === 0) return;
+            isPlaying = true;
+            document.getElementById('play-icon').setAttribute('data-lucide', 'pause');
+            document.getElementById('play-text').innerText = '一時停止';
+            lucide.createIcons();
+
+            const fps = parseInt(fpsSlider.value, 10);
+            const intervalMs = 1000 / fps;
+
+            if (!startTime) {
+                startTime = Date.now();
+                startTimer();
+            }
+
+            playTimer = setInterval(() => {
+                currentFrameIndex = (currentFrameIndex + 1) % sendChunks.length;
+                renderCurrentFrame();
+            }, intervalMs);
+        }
+
+        function pauseSender() {
+            isPlaying = false;
+            if (playTimer) clearInterval(playTimer);
+            playTimer = null;
+            document.getElementById('play-icon').setAttribute('data-lucide', 'play');
+            document.getElementById('play-text').innerText = '再生';
+            lucide.createIcons();
+        }
+
+        function stepFrame(dir) {
+            if (sendChunks.length === 0) return;
+            pauseSender();
+            currentFrameIndex = (currentFrameIndex + dir + sendChunks.length) % sendChunks.length;
+            renderCurrentFrame();
+        }
+
+        function resetSender() {
+            pauseSender();
+            currentFrameIndex = 0;
+            startTime = null;
+            stopTimer();
+            document.getElementById('sender-timer-text').innerText = '00:00';
+            renderCurrentFrame();
+        }
+
+        function startTimer() {
+            stopTimer();
+            timerInterval = setInterval(() => {
+                if (!startTime) return;
+                const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+                const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+                const s = String(elapsedSec % 60).padStart(2, '0');
+                document.getElementById('sender-timer-text').innerText = `${m}:${s}`;
+            }, 500);
+        }
+
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = null;
+        }
+
+        function updateControlButtons(enabled) {
+            document.getElementById('btn-play').disabled = !enabled;
+            document.getElementById('btn-prev').disabled = !enabled;
+            document.getElementById('btn-next').disabled = !enabled;
+        }
+
+        // -----------------------------------------------------------------
+        // 受信側 (Receiver) ロジック
+        // -----------------------------------------------------------------
+        const video = document.getElementById('webcam-video');
+        const canvasElement = document.getElementById('scanner-canvas');
+        const canvas = canvasElement.getContext('2d');
+
+        async function toggleCamera() {
+            if (isCameraScanning) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        }
+
+        async function startCamera() {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" }
+                });
+                video.srcObject = videoStream;
+                video.setAttribute("playsinline", true);
+                video.classList.remove('hidden');
+                document.getElementById('camera-placeholder').classList.add('hidden');
+                
+                await video.play();
+                isCameraScanning = true;
+                
+                document.getElementById('camera-btn-text').innerText = 'カメラ停止';
+                document.getElementById('btn-camera-toggle').classList.replace('bg-emerald-600', 'bg-rose-600');
+                document.getElementById('btn-camera-toggle').classList.replace('hover:bg-emerald-500', 'hover:bg-rose-500');
+
+                requestAnimationFrame(tickScan);
+            } catch (err) {
+                console.error("Camera error: ", err);
+                showToast("カメラの起動に失敗しました。アクセス許可を確認してください。");
+            }
+        }
+
+        function stopCamera() {
+            isCameraScanning = false;
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            video.classList.add('hidden');
+            document.getElementById('camera-placeholder').classList.remove('hidden');
+            document.getElementById('camera-btn-text').innerText = 'カメラ起動';
+            const btn = document.getElementById('btn-camera-toggle');
+            if (btn) {
+                btn.classList.replace('bg-rose-600', 'bg-emerald-600');
+                btn.classList.replace('hover:bg-rose-500', 'hover:bg-emerald-500');
+            }
+        }
+
+        function tickScan() {
+            if (!isCameraScanning) return;
+
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvasElement.height = video.videoHeight;
+                canvasElement.width = video.videoWidth;
+                canvas.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+                
+                const imageData = canvas.getImageData(0, 0, canvasElement.width, canvasElement.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
+
+                const overlay = document.getElementById('scan-overlay');
+
+                if (code && code.data) {
+                    // スキャン成功時のビジュアルフィードバック
+                    overlay.classList.replace('border-emerald-500/0', 'border-emerald-500');
+                    setTimeout(() => {
+                        overlay.classList.replace('border-emerald-500', 'border-emerald-500/0');
+                    }, 100);
+
+                    processScannedData(code.data);
+                }
+            }
+            animationFrameId = requestAnimationFrame(tickScan);
+        }
+
+        function processScannedData(data) {
+            // フォーマット解析: [index]/[total]|[payload]
+            const regex = /^(\d+)\/(\d+)\|([\s\S]*)$/;
+            const match = data.match(regex);
+
+            if (!match) return; // 本システムのフォーマット以外のQRは無視
+
+            const idx = parseInt(match[1], 10);
+            const total = parseInt(match[2], 10);
+            const payload = match[3];
+
+            totalChunksExpected = total;
+
+            if (!receivedChunks.has(idx)) {
+                receivedChunks.set(idx, payload);
+                updateReceiverUI();
+            }
+        }
+
+        function updateReceiverUI() {
+            if (!totalChunksExpected) return;
+
+            const receivedCount = receivedChunks.size;
+            const percent = Math.floor((receivedCount / totalChunksExpected) * 100);
+
+            document.getElementById('rx-percent').innerText = `${percent}%`;
+            document.getElementById('rx-progress-bar').style.width = `${percent}%`;
+            document.getElementById('rx-packets-status').innerText = `受信済: ${receivedCount} / ${totalChunksExpected}`;
+
+            // 未取得コマの特定
+            const missing = [];
+            for (let i = 1; i <= totalChunksExpected; i++) {
+                if (!receivedChunks.has(i)) missing.push(i);
+            }
+
+            if (missing.length > 0) {
+                document.getElementById('rx-missing-status').innerText = `未取得コマ: [${missing.slice(0, 5).join(', ')}${missing.length > 5 ? '...' : ''}]`;
+            } else {
+                document.getElementById('rx-missing-status').innerText = `全コマ受信完了`;
+                document.getElementById('success-toast').classList.remove('hidden');
+                
+                // データ結合と復元
+                reconstructText();
+            }
+        }
+
+        function reconstructText() {
+            let fullText = "";
+            for (let i = 1; i <= totalChunksExpected; i++) {
+                fullText += receivedChunks.get(i) || "";
+            }
+
+            const outputEl = document.getElementById('reconstructed-text');
+            outputEl.value = fullText;
+            document.getElementById('btn-copy').disabled = false;
+        }
+
+        function clearReceiver() {
+            receivedChunks.clear();
+            totalChunksExpected = null;
+            document.getElementById('rx-percent').innerText = '0%';
+            document.getElementById('rx-progress-bar').style.width = '0%';
+            document.getElementById('rx-packets-status').innerText = '受信済: 0 / 未定';
+            document.getElementById('rx-missing-status').innerText = '未読み取りコマあり';
+            document.getElementById('reconstructed-text').value = '';
+            document.getElementById('btn-copy').disabled = true;
+            document.getElementById('success-toast').classList.add('hidden');
+        }
+
+        function copyResult() {
+            const text = document.getElementById('reconstructed-text').value;
             if (!text) return;
 
-            // Fallback strategy for iframe environments
-            const textArea = document.createElement("textarea");
-            textArea.value = text;
-            document.body.appendChild(textArea);
-            textArea.select();
-            try {
-                document.execCommand('copy');
-                showStatus("クリップボードにコピーしました！", "success");
-            } catch (err) {
-                showStatus("コピーに失敗しました。", "error");
-            }
-            document.body.removeChild(textArea);
+            // クリップボードへコピー
+            const temp = document.createElement("textarea");
+            temp.value = text;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand("copy");
+            document.body.removeChild(temp);
+
+            showToast("テキストをコピーしました！");
         }
 
-        // Status Toast Notification display
-        function showStatus(msg, type) {
-            const box = document.getElementById('status-box');
-            const icon = document.getElementById('status-icon');
-            const message = document.getElementById('status-message');
-
-            if (type === 'hidden') {
-                box.classList.add('hidden');
-                return;
-            }
-
-            box.classList.remove('hidden');
-            message.textContent = msg;
-
-            if (type === 'error') {
-                box.className = "py-3 px-4 rounded-xl text-xs font-medium border flex items-center gap-2 bg-rose-500/10 text-rose-300 border-rose-500/30";
-                icon.className = "fa-solid fa-circle-exclamation text-rose-400";
-            } else if (type === 'success') {
-                box.className = "py-3 px-4 rounded-xl text-xs font-medium border flex items-center gap-2 bg-emerald-500/10 text-emerald-300 border-emerald-500/30";
-                icon.className = "fa-solid fa-check text-emerald-400";
-            }
-        }
-
-        // Helper to check valid URL format
-        function isValidUrl(string) {
-            try {
-                const url = new URL(string);
-                return url.protocol === "http:" || url.protocol === "https:";
-            } catch (_) {
-                return false;
-            }
-        }
-
-        // Play subtle sound on success
-        function playBeepSound() {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(880, ctx.currentTime); // A5 note
-                gain.gain.setValueAtTime(0.1, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.15);
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start();
-                osc.stop(ctx.currentTime + 0.15);
-            } catch(e) {}
-        }
-
-        // History Functionality
-        function addHistoryItem(text) {
-            if (scanHistory.length > 0 && scanHistory[0].text === text) return; // Prevent immediate duplicates
-            
-            scanHistory.unshift({
-                text: text,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            });
-
-            if (scanHistory.length > 10) scanHistory.pop(); // Keep last 10
-            localStorage.setItem('qr_scan_history', JSON.stringify(scanHistory));
-            renderHistory();
-        }
-
-        function renderHistory() {
-            const container = document.getElementById('history-container');
-            const list = document.getElementById('history-list');
-
-            if (scanHistory.length === 0) {
-                container.classList.add('hidden');
-                container.classList.remove('flex');
-                return;
-            }
-
-            container.classList.remove('hidden');
-            container.classList.add('flex');
-            list.innerHTML = '';
-
-            scanHistory.forEach((item, index) => {
-                const li = document.createElement('li');
-                li.className = "flex items-center justify-between text-xs bg-slate-900/50 p-2.5 rounded-lg border border-slate-700/40 hover:border-slate-600 transition-colors cursor-pointer group";
-                
-                const isUrl = isValidUrl(item.text);
-
-                li.innerHTML = `
-                    <div class="flex items-center gap-2 overflow-hidden mr-2" onclick="selectHistoryItem(${index})">
-                        <i class="fa-solid ${isUrl ? 'fa-link text-blue-400' : 'fa-font text-slate-400'} text-xs shrink-0"></i>
-                        <span class="truncate text-slate-300 font-mono text-[11px]">${escapeHtml(item.text)}</span>
-                    </div>
-                    <span class="text-[10px] text-slate-500 shrink-0">${item.time}</span>
-                `;
-                list.appendChild(li);
-            });
-        }
-
-        function selectHistoryItem(index) {
-            const item = scanHistory[index];
-            if (item) {
-                onScanSuccess(item.text);
-            }
-        }
-
-        function clearHistory() {
-            scanHistory = [];
-            localStorage.removeItem('qr_scan_history');
-            renderHistory();
-        }
-
-        function escapeHtml(text) {
-            return text.replace(/[&<>"']/g, function(m) {
-                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
-            });
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-message').innerText = msg;
+            toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-2');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-2');
+            }, 3000);
         }
     </script>
 </body>
